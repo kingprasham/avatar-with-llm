@@ -2,7 +2,7 @@ import Avatar from './avatar.js';
 import LipSync from './lipsync.js';
 
 // --- CONFIGURATION ---
-const API_BASE_URL = 'https://your-cloudflare-tunnel-url.trycloudflare.com'; // IMPORTANT: REPLACE WITH YOUR CLOUDFLARE URL
+const API_BASE_URL = 'https://coins-fairly-recreational-enforcement.trycloudflare.com'; // IMPORTANT: REPLACE WITH YOUR CLOUDFLARE URL
 const RECORDING_TIME_LIMIT = 15000; // 15 seconds max recording
 
 // --- DOM ELEMENTS ---
