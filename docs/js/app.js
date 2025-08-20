@@ -1,5 +1,8 @@
+import Avatar from './avatar.js';
+import LipSync from './lipsync.js';
+
 // --- CONFIGURATION ---
-const API_BASE_URL = 'https://coins-fairly-recreational-enforcement.trycloudflare.com';
+const API_BASE_URL = 'https://your-cloudflare-tunnel-url.trycloudflare.com'; // IMPORTANT: REPLACE WITH YOUR CLOUDFLARE URL
 const RECORDING_TIME_LIMIT = 15000; // 15 seconds max recording
 
 // --- DOM ELEMENTS ---
@@ -41,7 +44,7 @@ async function setupAudio() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Your browser does not support audio recording.");
     }
-    await navigator.mediaDevices.getUserMedia({ audio: true }); // Request permission early
+    await navigator.mediaDevices.getUserMedia({ audio: true });
 }
 
 async function startSession() {
@@ -124,14 +127,12 @@ async function processAudio() {
         const { audio_url, response_text } = data;
         statusText.textContent = `Avatar: "${response_text}"`;
 
-        // Play the audio with lip-sync
         await playResponseAudio(audio_url);
 
     } catch (error) {
         console.error('Error processing audio pipeline:', error);
         statusText.textContent = "An error occurred. Please try again.";
     } finally {
-        // Reset for next turn
         setTimeout(() => {
             if (!isRecording) {
                 statusText.textContent = "Ready. Click the button to speak.";
@@ -147,12 +148,8 @@ async function playResponseAudio(url) {
         const arrayBuffer = await response.arrayBuffer();
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-        // --- LIP SYNC PREPARATION ---
         LipSync.start(audioBuffer);
 
-        // --- AUDIO PLAYBACK with PREROLL ---
-        // This slight delay allows the visemes to start animating just before the sound is heard,
-        // compensating for the time it takes for sound to travel and be perceived.
         const AUDIO_PREROLL_MS = 70;
         setTimeout(() => {
             const source = audioContext.createBufferSource();
@@ -169,7 +166,7 @@ async function playResponseAudio(url) {
     } catch (error) {
         console.error('Error playing response audio:', error);
         statusText.textContent = "Could not play response audio.";
-        LipSync.stop(); // Ensure lip-sync stops on error
+        LipSync.stop();
     }
 }
 
