@@ -1,8 +1,8 @@
-// ES Module entry
+// js/app.js (ESM)
 import LipSync from './lipsync.js';
 import Avatar from './avatar.js';
 
-const API_BASE_URL = 'https://phil-progressive-invitation-pm.trycloudflare.com '; // <-- REPLACE
+const API_BASE_URL = 'https://your-cloudflare-tunnel-url.trycloudflare.com'; // <-- REPLACE
 const RECORDING_TIME_LIMIT = 15000;
 
 const recordButton   = document.getElementById('record-button');
@@ -18,10 +18,10 @@ window.addEventListener('load', async () => {
     await setupAudio();
 
     updateLoadingStatus('Initializing Lip Sync...');
-    await LipSync.init(); // will fallback if SDK missing
+    await LipSync.init(); // uses OVR if available, else amplitude fallback
 
     updateLoadingStatus('Loading 3D Avatar...');
-    await Avatar.init();  // will use placeholder head if .glb is missing
+    await Avatar.init();  // placeholder head if no GLB
 
     updateLoadingStatus('Starting Session...');
     await startSession();
@@ -58,12 +58,14 @@ recordButton.addEventListener('click', async () => {
 
 async function startRecording() {
   if (!sessionId) { statusText.textContent = 'Session not started. Refresh.'; return; }
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
     audioChunks = [];
     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
     mediaRecorder.onstop = processAudio;
+
     mediaRecorder.start();
     isRecording = true;
     recordButton.classList.add('recording');
@@ -86,6 +88,7 @@ function stopRecording() {
 
 async function processAudio() {
   if (audioChunks.length === 0) { statusText.textContent = 'No audio recorded.'; return; }
+
   const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
   const formData = new FormData();
   formData.append('audio', audioBlob, 'recording.webm');
@@ -95,6 +98,7 @@ async function processAudio() {
     const response = await fetch(`${API_BASE_URL}/pipeline/voice`, { method: 'POST', body: formData });
     if (!response.ok) throw new Error(`Server returned status ${response.status}`);
     const data = await response.json();
+
     statusText.textContent = `Avatar: "${data.response_text}"`;
     await playResponseAudio(data.audio_url);
   } catch (error) {
@@ -112,14 +116,20 @@ async function playResponseAudio(url) {
     const arrayBuffer = await response.arrayBuffer();
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-    // Start lipsync analysis first
+    // Start analysis (OVR path sets up a processor; amplitude path is a no-op here)
     LipSync.start(audioBuffer);
 
-    // Slight pre-roll so visemes lead audible playback
+    // Slight preroll so visemes start just ahead of audible playback
     const AUDIO_PREROLL_MS = 70;
+
     setTimeout(() => {
       const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
+
+      // (1) Attach to the source so amplitude fallback can read it
+      LipSync.attachToSource(source);
+
+      // (2) And still play audio to the user
       source.connect(audioContext.destination);
       source.start(0);
       source.onended = () => LipSync.stop();
