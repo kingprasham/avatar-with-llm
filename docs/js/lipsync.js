@@ -5,17 +5,11 @@ const LipSync = {
     async init() {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            if (typeof createOVRLipSync === 'undefined') throw new Error("OVR LipSync wrapper script not loaded.");
+            if (typeof createOVRLipSync === 'undefined') {
+                throw new Error("OVR LipSync wrapper script not loaded.");
+            }
             const context = await createOVRLipSync();
-            this.ovrContext = context.ovrLipSync_CreateContext(0, this.audio__init__() {
-    audioContext: null, ovrContext: null, processorNode: null, sourceNode: null,
-    isInitialized: false, useRhubarbFallback: false,
-    
-    async init() {
-        try {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            if (typeof createOVRLipSync === 'undefined') throw new Error("OVR LipSync wrapper script not loaded.");
-            const context = await createOVRLipSync();
+            // THE FIX IS ON THE NEXT LINE
             this.ovrContext = context.ovrLipSync_CreateContext(0, this.audioContext.sampleRate);
             this.processorNode = this.audioContext.createScriptProcessor(1024, 1, 1);
             this.processorNode.onaudioprocess = this.processAudio.bind(this);
@@ -24,7 +18,8 @@ const LipSync = {
         } catch (error) {
             console.warn("OVR WASM LipSync failed:", error);
             console.log("Switching to Rhubarb fallback.");
-            this.useRhubarbFallback = true; this.isInitialized = true;
+            this.useRhubarbFallback = true;
+            this.isInitialized = true;
         }
     },
 
