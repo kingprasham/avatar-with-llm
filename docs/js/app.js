@@ -1,11 +1,16 @@
-// js/app.js (ESM)
+// js/app.js
 import LipSync from './lipsync.js';
 import Avatar from './avatar.js';
 
-const API_BASE_URL = 'https://your-cloudflare-tunnel-url.trycloudflare.com'; // <-- REPLACE
+// ======= CONFIG =======
+const DEMO_MODE = true; // <-- set to false once your API is live
+const API_BASE_URL = 'https://your-real-endpoint.example.com'; // <-- replace when DEMO_MODE = false
+const SAMPLE_AUDIO_URL = 'assets/audio/sample.mp3'; // <-- put a short speech file here
 const RECORDING_TIME_LIMIT = 15000;
+// ======================
 
 const recordButton   = document.getElementById('record-button');
+const playSampleBtn  = document.getElementById('play-sample');
 const statusText     = document.getElementById('status-text');
 const loadingOverlay = document.getElementById('loading-overlay');
 const loadingStatus  = document.getElementById('loading-status');
@@ -18,22 +23,28 @@ window.addEventListener('load', async () => {
     await setupAudio();
 
     updateLoadingStatus('Initializing Lip Sync...');
-    await LipSync.init(); // uses OVR if available, else amplitude fallback
+    await LipSync.init();
 
     updateLoadingStatus('Loading 3D Avatar...');
-    await Avatar.init();  // placeholder head if no GLB
+    await Avatar.init();
 
-    updateLoadingStatus('Starting Session...');
-    await startSession();
+    if (!DEMO_MODE) {
+      updateLoadingStatus('Starting Session...');
+      await startSession();
+    }
 
     loadingOverlay.style.display = 'none';
     recordButton.disabled = false;
-    statusText.textContent = 'Ready. Click the button to speak.';
+    playSampleBtn.disabled = false;
+    statusText.textContent = DEMO_MODE
+      ? 'Demo mode: click Play Sample or use the mic.'
+      : 'Ready. Click the mic to speak.';
   } catch (error) {
     console.error('Initialization failed:', error);
     statusText.textContent = `Error: ${error.message || error}`;
     if (loadingStatus) loadingStatus.textContent = `Initialization Failed: ${error.message || error}`;
     recordButton.disabled = true;
+    playSampleBtn.disabled = true;
   }
 });
 
@@ -50,21 +61,34 @@ async function startSession() {
   console.log('Session started:', sessionId);
 }
 
-// Resume audio on click (autoplay policy), then toggle record
 recordButton.addEventListener('click', async () => {
   await LipSync.resume();
   isRecording ? stopRecording() : startRecording();
 });
 
-async function startRecording() {
-  if (!sessionId) { statusText.textContent = 'Session not started. Refresh.'; return; }
+playSampleBtn.addEventListener('click', async () => {
+  await LipSync.resume();
+  statusText.textContent = 'Playing sample...';
+  try {
+    await playResponseAudio(SAMPLE_AUDIO_URL);
+    statusText.textContent = 'Done.';
+  } catch (e) {
+    console.error(e);
+    statusText.textContent = 'Could not play sample.';
+  }
+});
 
+async function startRecording() {
+  if (!DEMO_MODE && !sessionId) {
+    statusText.textContent = 'Session not started. Refresh.';
+    return;
+  }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
     audioChunks = [];
     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-    mediaRecorder.onstop = processAudio;
+    mediaRecorder.onstop = DEMO_MODE ? playBackLocalRecording : processAudioToServer;
 
     mediaRecorder.start();
     isRecording = true;
@@ -83,12 +107,25 @@ function stopRecording() {
   isRecording = false;
   clearTimeout(recordingTimeout);
   recordButton.classList.remove('recording');
-  statusText.textContent = 'Processing...';
+  statusText.textContent = DEMO_MODE ? 'Processing (local)...' : 'Processing...';
 }
 
-async function processAudio() {
+async function playBackLocalRecording() {
   if (audioChunks.length === 0) { statusText.textContent = 'No audio recorded.'; return; }
+  // In demo mode we simply play recorded audio locally (no server),
+  // and amplitude fallback will move the jaw to speech energy.
+  const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+  const url = URL.createObjectURL(audioBlob);
+  try {
+    await playResponseAudio(url);
+  } finally {
+    URL.revokeObjectURL(url);
+    setTimeout(() => { if (!isRecording) statusText.textContent = 'Demo mode: Ready.'; }, 800);
+  }
+}
 
+async function processAudioToServer() {
+  if (audioChunks.length === 0) { statusText.textContent = 'No audio recorded.'; return; }
   const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
   const formData = new FormData();
   formData.append('audio', audioBlob, 'recording.webm');
@@ -98,7 +135,6 @@ async function processAudio() {
     const response = await fetch(`${API_BASE_URL}/pipeline/voice`, { method: 'POST', body: formData });
     if (!response.ok) throw new Error(`Server returned status ${response.status}`);
     const data = await response.json();
-
     statusText.textContent = `Avatar: "${data.response_text}"`;
     await playResponseAudio(data.audio_url);
   } catch (error) {
@@ -110,35 +146,27 @@ async function processAudio() {
 }
 
 async function playResponseAudio(url) {
-  try {
-    const audioContext = LipSync.getAudioContext();
-    const response = await fetch(url);
-    const arrayBuffer = await response.arrayBuffer();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  const audioContext = LipSync.getAudioContext();
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-    // Start analysis (OVR path sets up a processor; amplitude path is a no-op here)
-    LipSync.start(audioBuffer);
+  // Start analysis (OVR path sets a ScriptProcessor; amplitude path no-ops here)
+  LipSync.start(audioBuffer);
 
-    // Slight preroll so visemes start just ahead of audible playback
-    const AUDIO_PREROLL_MS = 70;
+  // Slight preroll so visemes lead audio
+  const AUDIO_PREROLL_MS = 70;
+  await new Promise(r => setTimeout(r, AUDIO_PREROLL_MS));
 
-    setTimeout(() => {
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
+  const source = audioContext.createBufferSource();
+  source.buffer = audioBuffer;
 
-      // (1) Attach to the source so amplitude fallback can read it
-      LipSync.attachToSource(source);
+  // Let amplitude fallback tap the live audio
+  LipSync.attachToSource(source);
 
-      // (2) And still play audio to the user
-      source.connect(audioContext.destination);
-      source.start(0);
-      source.onended = () => LipSync.stop();
-    }, AUDIO_PREROLL_MS);
-  } catch (error) {
-    console.error('Error playing audio:', error);
-    statusText.textContent = 'Could not play response.';
-    LipSync.stop();
-  }
+  source.connect(audioContext.destination);
+  source.start(0);
+  source.onended = () => LipSync.stop();
 }
 
 function updateLoadingStatus(msg) {

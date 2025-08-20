@@ -1,86 +1,50 @@
-// js/avatar.js (ESM, web-friendly)
-// - Imports via import map (index.html must include the import map)
-// - Loads a GLB avatar if present (MODEL_URL), else shows a simple placeholder head
-// - Supports both viseme arrays (OVR-style 15 length) and direct blendshape objects
-// - Includes gentle idle head motion + (optional) blinking when the model has blink shapes
-
+// js/avatar.js
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createNoise2D } from 'simplex-noise';
 
-// --------------- CONFIG ---------------
-
-// If you already have a GLB in your repo, keep this:
+// Put your GLB here (you said you uploaded it)
 const MODEL_URL = 'assets/models/avatar.glb';
 
-// If you want to see something immediately, uncomment one of these sample models:
-// const MODEL_URL = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb';
-// const MODEL_URL = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb';
-
-// OVR -> ARKit-ish mapping (simple, serviceable defaults). Tune these for your avatar.
 const OVR_VISEME_TO_ARKIT_MAP = {
-  0: 'sil',            // silence -> often do nothing
-  1: 'mouthPucker',    // PP
-  2: 'mouthFunnel',    // FF
-  3: 'tongueOut',      // TH
-  4: 'jawOpen',        // DD
-  5: 'jawOpen',        // kk
-  6: 'mouthShrugUpper',// CH
-  7: 'mouthShrugUpper',// SS
-  8: 'tongueOut',      // nn
-  9: 'mouthRollUpper', // RR
-  10: 'jawOpen',       // aa
-  11: 'mouthSmile',    // E
-  12: 'mouthSmile',    // ih
-  13: 'mouthFunnel',   // oh
-  14: 'mouthPucker'    // ou
+  0: 'sil', 1: 'mouthPucker', 2: 'mouthFunnel', 3: 'tongueOut',
+  4: 'jawOpen', 5: 'jawOpen', 6: 'mouthShrugUpper', 7: 'mouthShrugUpper',
+  8: 'tongueOut', 9: 'mouthRollUpper', 10: 'jawOpen',
+  11: 'mouthSmile', 12: 'mouthSmile', 13: 'mouthFunnel', 14: 'mouthPucker'
 };
-
-// --------------------------------------
 
 const Avatar = {
   scene: null, camera: null, renderer: null, controls: null,
   model: null, mesh: null,
   clock: new THREE.Clock(),
   noise2D: createNoise2D(),
-  blendshapeMap: {},                   // name -> morph index
-  targetBlendshapeValues: {},          // name -> value [0..1]
-  currentBlendshapeValues: {},         // smoothed
+  blendshapeMap: {},
+  targetBlendshapeValues: {},
+  currentBlendshapeValues: {},
   lastBlinkTime: 0, nextBlinkTime: 0, isBlinking: false,
 
   async init() {
     const container = document.getElementById('avatar-canvas-container');
-
-    // Scene
     this.scene = new THREE.Scene();
-    this.scene.background = null;
 
-    // Camera
     this.camera = new THREE.PerspectiveCamera(
       50,
       Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight),
-      0.1,
-      1000
+      0.1, 1000
     );
     this.camera.position.set(0, 1.4, 0.6);
 
-    // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    this.renderer.setSize(
-      Math.max(1, container.clientWidth),
-      Math.max(1, container.clientHeight)
-    );
+    this.renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
 
-    // Lights
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(1, 1, 1);
     this.scene.add(dirLight);
 
-    // Controls
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(0, 1.35, 0);
     this.controls.enablePan = false;
@@ -88,7 +52,6 @@ const Avatar = {
     this.controls.minDistance = 0.4;
     this.controls.maxDistance = 1.0;
 
-    // Load model or placeholder
     try {
       await this.loadModel(MODEL_URL);
     } catch (e) {
@@ -109,7 +72,6 @@ const Avatar = {
           this.model = gltf.scene;
           this.scene.add(this.model);
 
-          // Find first mesh with morph targets
           this.mesh = null;
           this.model.traverse((obj) => {
             if (obj.isMesh && obj.morphTargetInfluences && obj.morphTargetDictionary) {
@@ -120,19 +82,31 @@ const Avatar = {
           if (!this.mesh) {
             console.warn('No morph targets found. Visemes will be ignored.');
           } else {
-            // Build name -> index map
             this.blendshapeMap = { ...this.mesh.morphTargetDictionary };
-
-            // Initialize dictionaries
             Object.keys(this.blendshapeMap).forEach((key) => {
               this.targetBlendshapeValues[key]  = 0;
               this.currentBlendshapeValues[key] = 0;
             });
-
-            // Log the names you actually have (helps tune mapping)
             console.info('Morph targets detected:', Object.keys(this.blendshapeMap));
-            // If your RPM avatar uses ARKit names, you'll see many keys like 'jawOpen', 'mouthSmileLeft', etc.
           }
+
+          // Auto-fit
+          const box = new THREE.Box3().setFromObject(this.model);
+          const size = new THREE.Vector3();
+          const center = new THREE.Vector3();
+          box.getSize(size); box.getCenter(center);
+          this.model.position.sub(center);
+          const targetHeight = 1.7;
+          const scale = targetHeight / (size.y || 1);
+          this.model.scale.setScalar(scale);
+          const box2 = new THREE.Box3().setFromObject(this.model);
+          const size2 = new THREE.Vector3(); const center2 = new THREE.Vector3();
+          box2.getSize(size2); box2.getCenter(center2);
+          this.model.position.sub(center2);
+          const dist = Math.max(size2.y, size2.x) * 1.8;
+          this.camera.position.set(0, size2.y * 0.6, dist);
+          this.controls.target.set(0, size2.y * 0.55, 0);
+          this.controls.update();
 
           this.resetBlinkTimer();
           resolve();
@@ -145,7 +119,6 @@ const Avatar = {
 
   addPlaceholderHead() {
     const group = new THREE.Group();
-
     const headGeo = new THREE.SphereGeometry(0.18, 32, 32);
     const headMat = new THREE.MeshStandardMaterial({ color: 0xd0d4e6, roughness: 0.6, metalness: 0.05 });
     const head = new THREE.Mesh(headGeo, headMat);
@@ -176,15 +149,8 @@ const Avatar = {
     this.resetBlinkTimer();
   },
 
-  /**
-   * Update visemes from either:
-   *  - an array<number> of length ~15 (OVR order), OR
-   *  - an object { blendshapeName: value, ... }
-   */
   updateVisemes(input) {
-    if (!this.mesh) return; // no morph targets → ignore safely
-
-    // Object form: { 'jawOpen': 0.5, ... }
+    if (!this.mesh) return;
     if (input && !Array.isArray(input)) {
       for (const [name, v] of Object.entries(input)) {
         if (this.blendshapeMap[name] !== undefined) {
@@ -193,29 +159,16 @@ const Avatar = {
       }
       return;
     }
-
-    // Array form: map the strongest OVR viseme to a single ARKit-ish target
     const visemeScores = input || [];
     Object.values(OVR_VISEME_TO_ARKIT_MAP).forEach((name) => {
       if (this.blendshapeMap[name] !== undefined) this.targetBlendshapeValues[name] = 0;
     });
-
     let maxScore = 0, idx = 0;
-    visemeScores.forEach((score, i) => { if (score > maxScore) { maxScore = score; idx = i; } });
-
+    visemeScores.forEach((s, i) => { if (s > maxScore) { maxScore = s; idx = i; } });
     const name = OVR_VISEME_TO_ARKIT_MAP[idx];
     if (name && this.blendshapeMap[name] !== undefined) {
       const val = (name === 'jawOpen') ? Math.min(maxScore * 1.2, 1.0) : Math.min(maxScore, 1.0);
       this.targetBlendshapeValues[name] = val;
-    }
-  },
-
-  // Convenience for amplitude fallback: set jawOpen directly
-  updateJawFromAmplitude(level01) {
-    if (!this.mesh) return;
-    const v = THREE.MathUtils.clamp(level01, 0, 1);
-    if (this.blendshapeMap.jawOpen !== undefined) {
-      this.targetBlendshapeValues.jawOpen = v;
     }
   },
 
@@ -227,23 +180,15 @@ const Avatar = {
   },
 
   updateBlinking() {
-    // Only if blink shapes exist
     if (!('eyeBlinkLeft' in this.targetBlendshapeValues)) return;
-
     const time = this.clock.getElapsedTime();
     if (time > this.nextBlinkTime) this.isBlinking = true;
-
     if (this.isBlinking) {
       const blinkDuration = 0.2;
       const elapsed = time - this.lastBlinkTime;
       const blinkValue = (elapsed < blinkDuration)
-        ? Math.sin((elapsed / blinkDuration) * Math.PI)
-        : 0;
-
-      if (blinkValue === 0) {
-        this.isBlinking = false;
-        this.resetBlinkTimer();
-      }
+        ? Math.sin((elapsed / blinkDuration) * Math.PI) : 0;
+      if (blinkValue === 0) { this.isBlinking = false; this.resetBlinkTimer(); }
       this.targetBlendshapeValues.eyeBlinkLeft  = blinkValue;
       this.targetBlendshapeValues.eyeBlinkRight = blinkValue;
     }
@@ -261,13 +206,11 @@ const Avatar = {
   applySmoothing() {
     if (!this.mesh) return;
     const attack = 0.35, release = 0.5;
-
     for (const key in this.targetBlendshapeValues) {
       const target  = this.targetBlendshapeValues[key] ?? 0;
       const current = this.currentBlendshapeValues[key] ?? 0;
       const coeff   = (target > current) ? attack : release;
       const next    = current + (target - current) * coeff;
-
       this.currentBlendshapeValues[key] = next;
       const idx = this.blendshapeMap[key];
       if (idx !== undefined) this.mesh.morphTargetInfluences[idx] = next;
@@ -275,13 +218,10 @@ const Avatar = {
   },
 
   onWindowResize() {
-    const container = document.getElementById('avatar-canvas-container');
-    this.camera.aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+    const c = document.getElementById('avatar-canvas-container');
+    this.camera.aspect = Math.max(1, c.clientWidth) / Math.max(1, c.clientHeight);
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(
-      Math.max(1, container.clientWidth),
-      Math.max(1, container.clientHeight)
-    );
+    this.renderer.setSize(Math.max(1, c.clientWidth), Math.max(1, c.clientHeight));
   },
 
   animate() {
@@ -294,6 +234,5 @@ const Avatar = {
   }
 };
 
-// Also expose globally for any legacy code
 window.Avatar = Avatar;
 export default Avatar;
