@@ -1,8 +1,12 @@
-// ES Module for the 3D avatar scene
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
-import SimplexNoise from 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js';
+// js/avatar.js (ESM)
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import SimplexNoise from 'simplex-noise';
+
+const MODEL_URL = 'assets/models/avatar.glb'; 
+// If you don't have a file, set this to a known URL temporarily, e.g.:
+// const MODEL_URL = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF-Binary/Duck.glb';
 
 const Avatar = {
   scene: null, camera: null, renderer: null, controls: null, model: null, mesh: null,
@@ -10,7 +14,7 @@ const Avatar = {
   targetBlendshapeValues: {}, currentBlendshapeValues: {}, lastBlinkTime: 0,
   nextBlinkTime: 0, isBlinking: false,
 
-  // OVR viseme index → ARKit-ish names (placeholder mapping)
+  // Placeholder mapping; real visemes depend on your model
   OVR_VISEME_TO_ARKIT_MAP: {
     0: 'sil', 1: 'mouthPucker', 2: 'mouthFunnel', 3: 'tongueOut',
     4: 'jawOpen', 5: 'jawOpen', 6: 'mouthShrugUpper', 7: 'mouthShrugUpper',
@@ -28,7 +32,7 @@ const Avatar = {
     // Camera
     this.camera = new THREE.PerspectiveCamera(
       50,
-      container.clientWidth / container.clientHeight,
+      Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight),
       0.1,
       1000
     );
@@ -36,7 +40,10 @@ const Avatar = {
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    this.renderer.setSize(container.clientWidth, container.clientHeight);
+    this.renderer.setSize(
+      Math.max(1, container.clientWidth),
+      Math.max(1, container.clientHeight)
+    );
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
 
@@ -54,11 +61,11 @@ const Avatar = {
     this.controls.minDistance = 0.4;
     this.controls.maxDistance = 1.0;
 
-    // Try to load your model; if missing, make a placeholder head so app works.
+    // Try to load a model; if missing, create a placeholder head
     try {
-      await this.loadModel('assets/models/avatar.glb'); // replace when you add a real model
+      await this.loadModel(MODEL_URL);
     } catch (e) {
-      console.warn('Avatar model missing, using placeholder head:', e?.message || e);
+      console.warn('Avatar model missing or failed to load. Using placeholder head.', e);
       this.addPlaceholderHead();
     }
 
@@ -88,7 +95,7 @@ const Avatar = {
             console.warn('No morph targets found on the loaded model. Visemes will be ignored.');
           }
 
-          // Initialize dictionaries
+          // Initialize morph dictionaries
           Object.keys(this.blendshapeMap).forEach((key) => {
             this.targetBlendshapeValues[key]  = 0;
             this.currentBlendshapeValues[key] = 0;
@@ -104,7 +111,6 @@ const Avatar = {
   },
 
   addPlaceholderHead() {
-    // Simple “head” made of a sphere + eyes + mouth line so you can see movement
     const group = new THREE.Group();
 
     const headGeo = new THREE.SphereGeometry(0.18, 32, 32);
@@ -130,7 +136,7 @@ const Avatar = {
     this.model = group;
     this.scene.add(group);
 
-    // No morph targets here; visemes will simply be ignored without errors.
+    // No morph targets in placeholder
     this.mesh = null;
     this.blendshapeMap = {};
     this.targetBlendshapeValues = {};
@@ -139,14 +145,14 @@ const Avatar = {
   },
 
   updateVisemes(visemeScores) {
-    if (!this.mesh) return; // no morphs available → ignore safely
+    if (!this.mesh) return; // model has no morphs → ignore safely
 
-    // Zero-out all mapped targets first
+    // Zero out mapped targets first
     Object.values(this.OVR_VISEME_TO_ARKIT_MAP).forEach((name) => {
       if (this.blendshapeMap[name] !== undefined) this.targetBlendshapeValues[name] = 0;
     });
 
-    // Pick dominant viseme (simple approach)
+    // Pick dominant viseme (simple)
     let maxScore = 0, dominantViseme = 0;
     visemeScores.forEach((score, i) => {
       if (score > maxScore) { maxScore = score; dominantViseme = i; }
@@ -167,8 +173,7 @@ const Avatar = {
   },
 
   updateBlinking() {
-    // If no blink targets, just skip
-    if (!('eyeBlinkLeft' in this.targetBlendshapeValues)) return;
+    if (!('eyeBlinkLeft' in this.targetBlendshapeValues)) return; // no morphs → skip
 
     const time = this.clock.getElapsedTime();
     if (time > this.nextBlinkTime) this.isBlinking = true;
@@ -214,9 +219,12 @@ const Avatar = {
 
   onWindowResize() {
     const container = document.getElementById('avatar-canvas-container');
-    this.camera.aspect = container.clientWidth / container.clientHeight;
+    this.camera.aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(container.clientWidth, container.clientHeight);
+    this.renderer.setSize(
+      Math.max(1, container.clientWidth),
+      Math.max(1, container.clientHeight)
+    );
   },
 
   animate() {
@@ -229,6 +237,6 @@ const Avatar = {
   }
 };
 
-// Make available both ways (module + global)
+// Make available both ways (module + global) for any legacy code
 window.Avatar = Avatar;
 export default Avatar;
