@@ -2,7 +2,7 @@
 import LipSync from './lipsync.js';
 import Avatar from './avatar.js';
 
-const API_BASE_URL = 'https://coins-fairly-recreational-enforcement.trycloudflare.com'; // <-- REPLACE
+const API_BASE_URL = 'https://phil-progressive-invitation-pm.trycloudflare.com '; // <-- REPLACE
 const RECORDING_TIME_LIMIT = 15000;
 
 const recordButton   = document.getElementById('record-button');
