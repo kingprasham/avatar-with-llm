@@ -1,5 +1,5 @@
 // --- CONFIGURATION ---
-const API_BASE_URL = 'https://vendors-assembled-confidentiality-dig.trycloudflare.com';
+const API_BASE_URL = 'https://coins-fairly-recreational-enforcement.trycloudflare.com';
 const RECORDING_TIME_LIMIT = 15000; // 15 seconds max recording
 
 // --- DOM ELEMENTS ---
