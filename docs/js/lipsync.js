@@ -1,6 +1,4 @@
-// ES Module wrapper around the global OVR create function (from classic script).
-// Provides a robust LipSync object that works whether the WASM exposes cwrap or underscored exports.
-// Gracefully falls back (no crash) if the SDK isn't present.
+// ES Module wrapper for OVR; falls back cleanly when SDK is missing.
 
 const LipSync = {
   audioContext: null,
@@ -33,9 +31,7 @@ const LipSync = {
       }
 
       const ctxHandle = _create(0, this.audioContext.sampleRate);
-      if (!ctxHandle) {
-        throw new Error('ovrLipSync_CreateContext failed (0).');
-      }
+      if (!ctxHandle) throw new Error('ovrLipSync_CreateContext failed (0).');
 
       this.ovr = { module, ctxHandle, create: _create, process: _process, destroy: _destroy };
 
@@ -78,26 +74,24 @@ const LipSync = {
 
     const input = e.inputBuffer.getChannelData(0);
     const len = input.length;
-    const bytes = len * 4;                    // float32
+    const bytes = len * 4; // float32
     const ptr = this.ovr.module._malloc(bytes);
     this.ovr.module.HEAPF32.set(input, ptr >> 2);
 
-    // Signature typically: int ovrLipSync_ProcessFrame(ctx, float* samples, int numSamples)
+    // Signature: int ovrLipSync_ProcessFrame(ctx, float* samples, int numSamples)
     this.ovr.process(this.ovr.ctxHandle, ptr, len);
 
     this.ovr.module._free(ptr);
 
-    // TODO: Pull visemes from your wrapper (shared buffer or accessor) and feed Avatar.updateVisemes(visemesArray)
-    // If you add such a getter, call it here and forward to Avatar.updateVisemes(...)
+    // TODO: get visemes from your wrapper if exposed, then:
+    // window.Avatar?.updateVisemes(visemesArray);
   },
 
   stop() {
     if (this.processorNode) this.processorNode.disconnect();
     if (this.sourceNode) this.sourceNode.disconnect();
-    // Reset visemes if your avatar exposes it globally (optional)
-    if (window.Avatar?.updateVisemes) {
-      window.Avatar.updateVisemes(new Array(15).fill(0));
-    }
+    // Safe reset if Avatar is present
+    window.Avatar?.updateVisemes?.(new Array(15).fill(0));
   },
 
   destroy() {

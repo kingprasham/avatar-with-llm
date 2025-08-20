@@ -1,5 +1,4 @@
 // ES Module entry
-// Three & add-ons are imported inside avatar.js where they’re used.
 import LipSync from './lipsync.js';
 import Avatar from './avatar.js';
 
@@ -19,10 +18,10 @@ window.addEventListener('load', async () => {
     await setupAudio();
 
     updateLoadingStatus('Initializing Lip Sync...');
-    await LipSync.init();
+    await LipSync.init(); // will fallback if SDK missing
 
     updateLoadingStatus('Loading 3D Avatar...');
-    await Avatar.init();
+    await Avatar.init();  // will use placeholder head if .glb is missing
 
     updateLoadingStatus('Starting Session...');
     await startSession();
@@ -32,32 +31,26 @@ window.addEventListener('load', async () => {
     statusText.textContent = 'Ready. Click the button to speak.';
   } catch (error) {
     console.error('Initialization failed:', error);
-    statusText.textContent = `Error: ${error.message}. Please refresh.`;
-    if (loadingStatus) loadingStatus.textContent = `Initialization Failed: ${error.message}`;
+    statusText.textContent = `Error: ${error.message || error}`;
+    if (loadingStatus) loadingStatus.textContent = `Initialization Failed: ${error.message || error}`;
     recordButton.disabled = true;
   }
 });
 
 async function setupAudio() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error('Audio recording not supported.');
-  }
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('Audio recording not supported.');
   await navigator.mediaDevices.getUserMedia({ audio: true });
 }
 
 async function startSession() {
-  try {
-    const response = await fetch(`${API_BASE_URL}/session/start`, { method: 'POST' });
-    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-    const data = await response.json();
-    sessionId = data.session_id;
-    console.log('Session started:', sessionId);
-  } catch (error) {
-    throw new Error('Could not connect to the server.');
-  }
+  const response = await fetch(`${API_BASE_URL}/session/start`, { method: 'POST' });
+  if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+  const data = await response.json();
+  sessionId = data.session_id;
+  console.log('Session started:', sessionId);
 }
 
-// Resume audio context on user gesture, then toggle record
+// Resume audio on click (autoplay policy), then toggle record
 recordButton.addEventListener('click', async () => {
   await LipSync.resume();
   isRecording ? stopRecording() : startRecording();
@@ -65,15 +58,12 @@ recordButton.addEventListener('click', async () => {
 
 async function startRecording() {
   if (!sessionId) { statusText.textContent = 'Session not started. Refresh.'; return; }
-
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
     audioChunks = [];
-
     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
     mediaRecorder.onstop = processAudio;
-
     mediaRecorder.start();
     isRecording = true;
     recordButton.classList.add('recording');
@@ -96,7 +86,6 @@ function stopRecording() {
 
 async function processAudio() {
   if (audioChunks.length === 0) { statusText.textContent = 'No audio recorded.'; return; }
-
   const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
   const formData = new FormData();
   formData.append('audio', audioBlob, 'recording.webm');
@@ -106,7 +95,6 @@ async function processAudio() {
     const response = await fetch(`${API_BASE_URL}/pipeline/voice`, { method: 'POST', body: formData });
     if (!response.ok) throw new Error(`Server returned status ${response.status}`);
     const data = await response.json();
-
     statusText.textContent = `Avatar: "${data.response_text}"`;
     await playResponseAudio(data.audio_url);
   } catch (error) {
@@ -127,7 +115,7 @@ async function playResponseAudio(url) {
     // Start lipsync analysis first
     LipSync.start(audioBuffer);
 
-    // Slight pre-roll so visemes lead the audible playback
+    // Slight pre-roll so visemes lead audible playback
     const AUDIO_PREROLL_MS = 70;
     setTimeout(() => {
       const source = audioContext.createBufferSource();

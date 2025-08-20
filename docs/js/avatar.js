@@ -2,7 +2,6 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
-// ESM build of simplex-noise
 import SimplexNoise from 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js';
 
 const Avatar = {
@@ -11,7 +10,7 @@ const Avatar = {
   targetBlendshapeValues: {}, currentBlendshapeValues: {}, lastBlinkTime: 0,
   nextBlinkTime: 0, isBlinking: false,
 
-  // OVR viseme index → ARKit-ish blendshape names mapping
+  // OVR viseme index → ARKit-ish names (placeholder mapping)
   OVR_VISEME_TO_ARKIT_MAP: {
     0: 'sil', 1: 'mouthPucker', 2: 'mouthFunnel', 3: 'tongueOut',
     4: 'jawOpen', 5: 'jawOpen', 6: 'mouthShrugUpper', 7: 'mouthShrugUpper',
@@ -55,8 +54,13 @@ const Avatar = {
     this.controls.minDistance = 0.4;
     this.controls.maxDistance = 1.0;
 
-    // Load your model (ensure this path is correct)
-    await this.loadModel('assets/models/avatar.glb');
+    // Try to load your model; if missing, make a placeholder head so app works.
+    try {
+      await this.loadModel('assets/models/avatar.glb'); // replace when you add a real model
+    } catch (e) {
+      console.warn('Avatar model missing, using placeholder head:', e?.message || e);
+      this.addPlaceholderHead();
+    }
 
     window.addEventListener('resize', this.onWindowResize.bind(this), false);
     this.animate();
@@ -81,7 +85,7 @@ const Avatar = {
           });
 
           if (!this.mesh) {
-            return reject(new Error('No mesh with morph targets found in model.'));
+            console.warn('No morph targets found on the loaded model. Visemes will be ignored.');
           }
 
           // Initialize dictionaries
@@ -99,13 +103,50 @@ const Avatar = {
     });
   },
 
+  addPlaceholderHead() {
+    // Simple “head” made of a sphere + eyes + mouth line so you can see movement
+    const group = new THREE.Group();
+
+    const headGeo = new THREE.SphereGeometry(0.18, 32, 32);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xd0d4e6, roughness: 0.6, metalness: 0.05 });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.set(0, 1.35, 0);
+    group.add(head);
+
+    const eyeGeo = new THREE.SphereGeometry(0.02, 16, 16);
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+    const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+    leftEye.position.set(-0.05, 1.38, 0.155);
+    rightEye.position.set(0.05, 1.38, 0.155);
+    group.add(leftEye, rightEye);
+
+    const mouthGeo = new THREE.BoxGeometry(0.09, 0.008, 0.02);
+    const mouthMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+    const mouth = new THREE.Mesh(mouthGeo, mouthMat);
+    mouth.position.set(0, 1.30, 0.17);
+    group.add(mouth);
+
+    this.model = group;
+    this.scene.add(group);
+
+    // No morph targets here; visemes will simply be ignored without errors.
+    this.mesh = null;
+    this.blendshapeMap = {};
+    this.targetBlendshapeValues = {};
+    this.currentBlendshapeValues = {};
+    this.resetBlinkTimer();
+  },
+
   updateVisemes(visemeScores) {
+    if (!this.mesh) return; // no morphs available → ignore safely
+
     // Zero-out all mapped targets first
     Object.values(this.OVR_VISEME_TO_ARKIT_MAP).forEach((name) => {
       if (this.blendshapeMap[name] !== undefined) this.targetBlendshapeValues[name] = 0;
     });
 
-    // Pick dominant viseme (very simple approach)
+    // Pick dominant viseme (simple approach)
     let maxScore = 0, dominantViseme = 0;
     visemeScores.forEach((score, i) => {
       if (score > maxScore) { maxScore = score; dominantViseme = i; }
@@ -126,6 +167,9 @@ const Avatar = {
   },
 
   updateBlinking() {
+    // If no blink targets, just skip
+    if (!('eyeBlinkLeft' in this.targetBlendshapeValues)) return;
+
     const time = this.clock.getElapsedTime();
     if (time > this.nextBlinkTime) this.isBlinking = true;
 
@@ -148,8 +192,10 @@ const Avatar = {
   resetBlinkTimer() {
     this.lastBlinkTime = this.clock.getElapsedTime();
     this.nextBlinkTime = this.lastBlinkTime + 3 + Math.random() * 2;
-    this.targetBlendshapeValues.eyeBlinkLeft  = 0;
-    this.targetBlendshapeValues.eyeBlinkRight = 0;
+    if ('eyeBlinkLeft' in this.targetBlendshapeValues) {
+      this.targetBlendshapeValues.eyeBlinkLeft  = 0;
+      this.targetBlendshapeValues.eyeBlinkRight = 0;
+    }
   },
 
   applySmoothing() {
@@ -157,10 +203,10 @@ const Avatar = {
     const attack = 0.3, release = 0.5;
 
     for (const key in this.targetBlendshapeValues) {
-      const target  = this.targetBlendshapeValues[key];
-      const current = this.currentBlendshapeValues[key];
+      const target  = this.targetBlendshapeValues[key] ?? 0;
+      const current = this.currentBlendshapeValues[key] ?? 0;
 
-      this.currentBlendshapeValues[key] += (target - current) * ((target > current) ? attack : release);
+      this.currentBlendshapeValues[key] = current + (target - current) * ((target > current) ? attack : release);
       const idx = this.blendshapeMap[key];
       if (idx !== undefined) this.mesh.morphTargetInfluences[idx] = this.currentBlendshapeValues[key];
     }
@@ -183,4 +229,6 @@ const Avatar = {
   }
 };
 
+// Make available both ways (module + global)
+window.Avatar = Avatar;
 export default Avatar;
