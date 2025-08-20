@@ -1,7 +1,3 @@
-import * as THREE from 'three';
-import { GLTFLoader } from './lib/GLTFLoader.js';
-import { OrbitControls } from './lib/OrbitControls.js';
-
 const Avatar = {
     scene: null,
     camera: null,
@@ -36,11 +32,11 @@ const Avatar = {
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         this.scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        const directionalLight = new THREE.DirectionLight(0xffffff, 0.8);
         directionalLight.position.set(1, 1, 1);
         this.scene.add(directionalLight);
 
-        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
         this.controls.target.set(0, 1.35, 0);
         this.controls.enablePan = false;
         this.controls.enableZoom = true;
@@ -57,7 +53,7 @@ const Avatar = {
 
     loadModel(url) {
         return new Promise((resolve, reject) => {
-            const loader = new GLTFLoader();
+            const loader = new THREE.GLTFLoader();
             loader.load(url, (gltf) => {
                 this.model = gltf.scene;
                 this.scene.add(this.model);
@@ -185,6 +181,3 @@ const Avatar = {
         this.renderer.render(this.scene, this.camera);
     }
 };
-
-// Export the Avatar object so app.js can import it
-export default Avatar;
