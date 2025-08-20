@@ -1,18 +1,8 @@
 const Avatar = {
-    scene: null,
-    camera: null,
-    renderer: null,
-    controls: null,
-    model: null,
-    mixer: null,
-    clock: new THREE.Clock(),
-    noise: new SimplexNoise(),
-    blendshapeMap: {},
-    targetBlendshapeValues: {},
-    currentBlendshapeValues: {},
-    lastBlinkTime: 0,
-    nextBlinkTime: 0,
-    isBlinking: false,
+    scene: null, camera: null, renderer: null, controls: null, model: null, mixer: null,
+    clock: new THREE.Clock(), noise: new SimplexNoise(), blendshapeMap: {},
+    targetBlendshapeValues: {}, currentBlendshapeValues: {}, lastBlinkTime: 0,
+    nextBlinkTime: 0, isBlinking: false,
 
     OVR_VISME_TO_ARKIT_MAP: {
         0: 'sil', 1: 'mouthPucker', 2: 'mouthFunnel', 3: 'tongueOut', 4: 'jawOpen', 5: 'jawOpen',
@@ -32,22 +22,18 @@ const Avatar = {
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         this.scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionLight(0xffffff, 0.8);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         directionalLight.position.set(1, 1, 1);
         this.scene.add(directionalLight);
 
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
         this.controls.target.set(0, 1.35, 0);
-        this.controls.enablePan = false;
-        this.controls.enableZoom = true;
-        this.controls.minDistance = 0.4;
-        this.controls.maxDistance = 1.0;
+        this.controls.enablePan = false; this.controls.enableZoom = true;
+        this.controls.minDistance = 0.4; this.controls.maxDistance = 1.0;
         this.controls.update();
         
         await this.loadModel('assets/models/avatar.glb');
-
         window.addEventListener('resize', this.onWindowResize.bind(this), false);
-        
         this.animate();
     },
 
@@ -65,41 +51,24 @@ const Avatar = {
                         });
                     }
                 });
-                
-                if (!this.mesh) {
-                    return reject(new Error("No mesh with morph targets found in the model."));
-                }
-                
+                if (!this.mesh) return reject(new Error("No mesh with morph targets found."));
                 Object.keys(this.blendshapeMap).forEach(key => {
-                    this.targetBlendshapeValues[key] = 0;
-                    this.currentBlendshapeValues[key] = 0;
+                    this.targetBlendshapeValues[key] = 0; this.currentBlendshapeValues[key] = 0;
                 });
-                
                 this.resetBlinkTimer();
                 resolve();
-            }, undefined, (error) => {
-                console.error('Error loading model:', error);
-                reject(error);
-            });
+            }, undefined, (error) => reject(error));
         });
     },
     
     updateVisemes(visemeScores) {
         Object.values(this.OVR_VISME_TO_ARKIT_MAP).forEach(name => {
-            if (this.blendshapeMap[name] !== undefined) {
-                this.targetBlendshapeValues[name] = 0;
-            }
+            if (this.blendshapeMap[name] !== undefined) this.targetBlendshapeValues[name] = 0;
         });
-
-        let maxScore = 0;
-        let dominantViseme = 0;
+        let maxScore = 0, dominantViseme = 0;
         visemeScores.forEach((score, i) => {
-            if (score > maxScore) {
-                maxScore = score;
-                dominantViseme = i;
-            }
+            if (score > maxScore) { maxScore = score; dominantViseme = i; }
         });
-        
         const blendshapeName = this.OVR_VISME_TO_ARKIT_MAP[dominantViseme];
         if (blendshapeName && this.blendshapeMap[blendshapeName] !== undefined) {
             const influence = (blendshapeName === 'jawOpen') ? maxScore * 1.2 : maxScore;
@@ -107,29 +76,20 @@ const Avatar = {
         }
     },
 
-    updateHeadMovement(deltaTime) {
+    updateHeadMovement() {
         if (!this.model) return;
         const time = this.clock.elapsedTime;
         this.model.rotation.y = this.noise.noise2D(time * 0.1, 0) * 0.05;
         this.model.rotation.x = this.noise.noise2D(0, time * 0.12) * 0.03;
     },
 
-    updateBlinking(deltaTime) {
+    updateBlinking() {
         const time = this.clock.getElapsedTime();
-        if (time > this.nextBlinkTime) {
-            this.isBlinking = true;
-        }
-
+        if (time > this.nextBlinkTime) this.isBlinking = true;
         if (this.isBlinking) {
-            const blinkDuration = 0.2;
-            const elapsed = time - this.lastBlinkTime;
-            let blinkValue = 0;
-            if (elapsed < blinkDuration) {
-                blinkValue = Math.sin((elapsed / blinkDuration) * Math.PI);
-            } else {
-                this.isBlinking = false;
-                this.resetBlinkTimer();
-            }
+            const blinkDuration = 0.2, elapsed = time - this.lastBlinkTime;
+            let blinkValue = (elapsed < blinkDuration) ? Math.sin((elapsed / blinkDuration) * Math.PI) : 0;
+            if (blinkValue === 0) { this.isBlinking = false; this.resetBlinkTimer(); }
             this.targetBlendshapeValues.eyeBlinkLeft = blinkValue;
             this.targetBlendshapeValues.eyeBlinkRight = blinkValue;
         }
@@ -138,27 +98,18 @@ const Avatar = {
     resetBlinkTimer() {
         this.lastBlinkTime = this.clock.getElapsedTime();
         this.nextBlinkTime = this.lastBlinkTime + 3 + Math.random() * 2;
-        this.targetBlendshapeValues.eyeBlinkLeft = 0;
-        this.targetBlendshapeValues.eyeBlinkRight = 0;
+        this.targetBlendshapeValues.eyeBlinkLeft = 0; this.targetBlendshapeValues.eyeBright = 0;
     },
 
-    applySmoothing(deltaTime) {
+    applySmoothing() {
         if (!this.mesh) return;
-        
-        const attack = 0.3;
-        const release = 0.5;
-        
+        const attack = 0.3, release = 0.5;
         for (const key in this.targetBlendshapeValues) {
-            const target = this.targetBlendshapeValues[key];
-            const current = this.currentBlendshapeValues[key];
+            const target = this.targetBlendshapeValues[key], current = this.currentBlendshapeValues[key];
             const smoothing = (target > current) ? attack : release;
-            
             this.currentBlendshapeValues[key] += (target - current) * smoothing;
-            
             const blendshapeIndex = this.blendshapeMap[key];
-            if (blendshapeIndex !== undefined) {
-                this.mesh.morphTargetInfluences[blendshapeIndex] = this.currentBlendshapeValues[key];
-            }
+            if (blendshapeIndex !== undefined) this.mesh.morphTargetInfluences[blendshapeIndex] = this.currentBlendshapeValues[key];
         }
     },
     
@@ -171,13 +122,7 @@ const Avatar = {
 
     animate() {
         requestAnimationFrame(this.animate.bind(this));
-        const deltaTime = this.clock.getDelta();
-        
-        this.updateHeadMovement(deltaTime);
-        this.updateBlinking(deltaTime);
-        this.applySmoothing(deltaTime);
-        
-        this.controls.update();
-        this.renderer.render(this.scene, this.camera);
+        this.updateHeadMovement(); this.updateBlinking(); this.applySmoothing();
+        this.controls.update(); this.renderer.render(this.scene, this.camera);
     }
 };
